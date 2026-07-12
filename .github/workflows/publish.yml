@@ -1,0 +1,52 @@
+# Publication automatique sur PyPI a chaque tag `vX.Y.Z` (Trusted Publishing / OIDC).
+# Prerequis (une fois) : sur pypi.org -> projet fameen-messaging -> Settings -> Publishing
+# -> ajouter un "Trusted Publisher" GitHub : owner konatem-mk9, repo fameen-messaging-python,
+#    workflow publish.yml, environment pypi.
+name: Publier sur PyPI
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    name: Tests + build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Tests
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install httpx pytest pytest-asyncio
+          python -m pytest -q
+
+      - name: Build sdist + wheel
+        run: |
+          python -m pip install build
+          python -m build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    name: Publication PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      # Requis pour le Trusted Publishing OIDC — aucun token/secret a configurer.
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
