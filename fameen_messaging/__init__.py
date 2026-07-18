@@ -27,6 +27,7 @@ from .errors import (
     FameenError,
     WebhookVerificationError,
 )
+from .media import encode_media, file_attachment
 from .types import (
     MessageList,
     MessageResource,
@@ -59,6 +60,9 @@ __all__ = [
     # Webhooks
     "verify_webhook_signature",
     "construct_webhook_event",
+    # Médias
+    "file_attachment",
+    "encode_media",
     # Divers
     "VERSION",
     "__version__",

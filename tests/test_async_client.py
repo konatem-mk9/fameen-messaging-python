@@ -1,5 +1,6 @@
 """Tests du client asynchrone — httpx.MockTransport, aucun appel réseau."""
 
+import base64
 import json
 
 import httpx
@@ -59,8 +60,24 @@ async def test_async_email_send_deballe_et_en_tetes():
     assert seen["path"] == "/api/v1/email/send"
     assert seen["body"] == {"to": "client@exemple.com", "message": "Bonjour", "subject": "Objet"}
     assert seen["headers"]["Authorization"] == f"Bearer {API_KEY}"
-    assert seen["headers"]["User-Agent"] == "fameen-messaging-python/0.1.0"
+    assert seen["headers"]["User-Agent"] == "fameen-messaging-python/0.2.0"
     assert seen["headers"]["Idempotency-Key"] == "idem-7"
+
+
+async def test_async_whatsapp_media_encode_base64():
+    seen = {}
+
+    def handler(request):
+        seen["body"] = json.loads(request.content.decode("utf-8"))
+        return httpx.Response(200, json=envelope({**MESSAGE_DATA, "channel": "whatsapp"}))
+
+    async with AsyncFameenMessaging(
+        api_key=API_KEY, transport=httpx.MockTransport(handler), retry_base=0.0001
+    ) as client:
+        await client.whatsapp.send("+224620000000", media=b"img-bytes", media_type="image")
+
+    assert seen["body"]["media"] == base64.b64encode(b"img-bytes").decode("ascii")
+    assert seen["body"]["mediaType"] == "image"
 
 
 async def test_async_retry_429_puis_succes():

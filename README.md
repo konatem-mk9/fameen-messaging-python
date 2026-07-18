@@ -48,6 +48,31 @@ print(solde.sms_credits, solde.wa_credits, solde.email_credits, solde.billing.mo
 
 Le contenu accepte les variables de personnalisation `{prenom}`, `{nom}`, `{email}`, `{phone}` (max 5 000 caractères ; `subject` ≤ 255).
 
+## Médias (pièces jointes)
+
+WhatsApp et email acceptent des pièces jointes (PDF, images, vidéo, audio). Passez les octets du fichier (`bytes`) — le SDK les encode en base64 ; l'API héberge le fichier et le distribue. **SMS non supporté.** Quand un média est fourni, `message` peut être vide.
+
+```python
+from fameen_messaging import FameenMessaging, file_attachment
+
+client = FameenMessaging(api_key="fam_…")
+
+# WhatsApp : un seul média par message, message = légende (facultative)
+client.whatsapp.send(
+    "+224620000000", "Votre facture",
+    media=open("facture.pdf", "rb").read(), file_name="facture.pdf",
+)
+
+# Email : plusieurs pièces jointes (file_attachment lit le fichier pour vous)
+client.email.send(
+    "client@exemple.com", "Bonjour, voir en pièces jointes.",
+    subject="Vos documents",
+    attachments=[file_attachment("facture.pdf"), file_attachment("cgv.pdf")],
+)
+```
+
+Chaque pièce jointe est un dict `{"content": bytes|base64, "filename": ..., "content_type": ..., "type": ...}` où `type` vaut `image | video | audio | document` (déduit du type MIME si absent). Max 16 Mo par fichier. Mêmes paramètres sur le client asynchrone.
+
 ## Client asynchrone
 
 Mêmes méthodes, en `async`, sur `httpx.AsyncClient` :

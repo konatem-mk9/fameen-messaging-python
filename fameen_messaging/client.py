@@ -23,12 +23,15 @@ import warnings
 from typing import Any, Dict, Mapping, Optional, Tuple, Union
 from urllib.parse import quote
 
+from typing import List
+
 import httpx
 
 from .errors import FameenAPIError, FameenConnectionError
+from .media import MediaContent, build_media_fields, has_media
 from .types import MessageList, MessageResource, RateLimitInfo, WalletBalance
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 DEFAULT_BASE_URL = "https://business.fameengroupe.com/api/v1"
 USER_AGENT = f"fameen-messaging-python/{VERSION}"
 
@@ -62,13 +65,22 @@ def _code_from_status(status: int) -> str:
     return "internal_error" if status >= 500 else "unknown_error"
 
 
-def _assert_sendable(to: Any, message: Any, channel: Optional[str] = None) -> None:
+def _assert_sendable(
+    to: Any,
+    message: Any,
+    channel: Optional[str] = None,
+    *,
+    with_media: bool = False,
+) -> None:
     """Valide les champs minimum AVANT tout appel réseau (meilleure DX)."""
     if not isinstance(to, str) or not to.strip():
         raise TypeError("`to` est requis (numéro E.164 ou adresse email).")
-    if not isinstance(message, str) or not message.strip():
-        raise TypeError("`message` est requis et ne peut pas être vide.")
-    if channel and channel != "email" and "@" in to:
+    # Un message peut n'être qu'un média (légende facultative).
+    if not with_media and (not isinstance(message, str) or not message.strip()):
+        raise TypeError("`message` est requis (ou fournissez un média).")
+    if with_media and channel == "sms":
+        raise TypeError("Le canal SMS ne supporte pas les pièces jointes.")
+    if channel and channel != "email" and isinstance(to, str) and "@" in to:
         raise TypeError(
             f'`to` ressemble à un email mais le canal demandé est "{channel}".'
         )
@@ -83,20 +95,34 @@ def _clean_sid(sid: Any) -> str:
 
 def _send_body(
     to: str,
-    message: str,
+    message: Any,
     *,
     channel: Optional[str] = None,
     subject: Optional[str] = None,
     status_callback: Optional[str] = None,
+    media: Optional[MediaContent] = None,
+    file_name: Optional[str] = None,
+    content_type: Optional[str] = None,
+    media_type: Optional[str] = None,
+    attachments: Optional[List[Mapping[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """Construit le corps JSON d'envoi (clés camelCase de l'API, sans ``None``)."""
-    body: Dict[str, Any] = {"to": to, "message": message}
+    body: Dict[str, Any] = {"to": to, "message": message if isinstance(message, str) else ""}
     if channel is not None:
         body["channel"] = channel
     if subject is not None:
         body["subject"] = subject
     if status_callback is not None:
         body["statusCallback"] = status_callback
+    body.update(
+        build_media_fields(
+            media=media,
+            file_name=file_name,
+            content_type=content_type,
+            media_type=media_type,
+            attachments=attachments,
+        )
+    )
     return body
 
 
@@ -411,20 +437,29 @@ class MessagesResource:
     def create(
         self,
         to: str,
-        message: str,
+        message: str = "",
         channel: Optional[str] = None,
         subject: Optional[str] = None,
         status_callback: Optional[str] = None,
         idempotency_key: Optional[str] = None,
+        *,
+        media: Optional[MediaContent] = None,
+        file_name: Optional[str] = None,
+        content_type: Optional[str] = None,
+        media_type: Optional[str] = None,
+        attachments: Optional[List[Mapping[str, Any]]] = None,
     ) -> MessageResource:
         """Envoie un message — canal explicite ou déduit du destinataire.
 
         Sans ``channel`` : email si ``to`` contient « @ », sinon SMS
-        (WhatsApp doit donc toujours être explicite).
+        (WhatsApp doit donc toujours être explicite). Voir :meth:`SmsResource.send`
+        pour la liste complète des paramètres média.
         """
-        _assert_sendable(to, message, channel)
+        _assert_sendable(to, message, channel, with_media=has_media(media, attachments))
         body = _send_body(
-            to, message, channel=channel, subject=subject, status_callback=status_callback
+            to, message, channel=channel, subject=subject, status_callback=status_callback,
+            media=media, file_name=file_name, content_type=content_type,
+            media_type=media_type, attachments=attachments,
         )
         data = self._client._request(
             "POST", "/messages", body=body, idempotency_key=idempotency_key
@@ -478,13 +513,23 @@ class _ChannelResource:
     def _send(
         self,
         to: str,
-        message: str,
+        message: Any,
         subject: Optional[str] = None,
         status_callback: Optional[str] = None,
         idempotency_key: Optional[str] = None,
+        *,
+        media: Optional[MediaContent] = None,
+        file_name: Optional[str] = None,
+        content_type: Optional[str] = None,
+        media_type: Optional[str] = None,
+        attachments: Optional[List[Mapping[str, Any]]] = None,
     ) -> MessageResource:
-        _assert_sendable(to, message, self._channel)
-        body = _send_body(to, message, subject=subject, status_callback=status_callback)
+        _assert_sendable(to, message, self._channel, with_media=has_media(media, attachments))
+        body = _send_body(
+            to, message, subject=subject, status_callback=status_callback,
+            media=media, file_name=file_name, content_type=content_type,
+            media_type=media_type, attachments=attachments,
+        )
         data = self._client._request(
             "POST", self._path, body=body, idempotency_key=idempotency_key
         )
@@ -519,13 +564,26 @@ class WhatsappResource(_ChannelResource):
     def send(
         self,
         to: str,
-        message: str,
+        message: str = "",
         status_callback: Optional[str] = None,
         idempotency_key: Optional[str] = None,
+        *,
+        media: Optional[MediaContent] = None,
+        file_name: Optional[str] = None,
+        content_type: Optional[str] = None,
+        media_type: Optional[str] = None,
+        attachments: Optional[List[Mapping[str, Any]]] = None,
     ) -> MessageResource:
-        """Envoie un message WhatsApp à ``to`` (numéro E.164)."""
+        """Envoie un message WhatsApp à ``to`` (numéro E.164).
+
+        Média (PDF, image, vidéo, audio) : passez ``media`` (octets ou base64)
+        avec ``file_name`` — ou ``attachments=[...]`` (un seul média par message
+        sur WhatsApp). ``message`` sert alors de légende (facultatif).
+        """
         return self._send(
-            to, message, status_callback=status_callback, idempotency_key=idempotency_key
+            to, message, status_callback=status_callback, idempotency_key=idempotency_key,
+            media=media, file_name=file_name, content_type=content_type,
+            media_type=media_type, attachments=attachments,
         )
 
 
@@ -538,18 +596,33 @@ class EmailResource(_ChannelResource):
     def send(
         self,
         to: str,
-        message: str,
+        message: str = "",
         subject: Optional[str] = None,
         status_callback: Optional[str] = None,
         idempotency_key: Optional[str] = None,
+        *,
+        media: Optional[MediaContent] = None,
+        file_name: Optional[str] = None,
+        content_type: Optional[str] = None,
+        media_type: Optional[str] = None,
+        attachments: Optional[List[Mapping[str, Any]]] = None,
     ) -> MessageResource:
-        """Envoie un email à ``to`` (``subject`` ≤ 255 caractères)."""
+        """Envoie un email à ``to`` (``subject`` ≤ 255 caractères).
+
+        Pièces jointes : ``attachments=[file_attachment("f.pdf"), ...]`` (plusieurs
+        autorisées) ou le raccourci ``media`` + ``file_name`` pour un seul fichier.
+        """
         return self._send(
             to,
             message,
             subject=subject,
             status_callback=status_callback,
             idempotency_key=idempotency_key,
+            media=media,
+            file_name=file_name,
+            content_type=content_type,
+            media_type=media_type,
+            attachments=attachments,
         )
 
 
@@ -680,16 +753,24 @@ class AsyncMessagesResource:
     async def create(
         self,
         to: str,
-        message: str,
+        message: str = "",
         channel: Optional[str] = None,
         subject: Optional[str] = None,
         status_callback: Optional[str] = None,
         idempotency_key: Optional[str] = None,
+        *,
+        media: Optional[MediaContent] = None,
+        file_name: Optional[str] = None,
+        content_type: Optional[str] = None,
+        media_type: Optional[str] = None,
+        attachments: Optional[List[Mapping[str, Any]]] = None,
     ) -> MessageResource:
         """Envoie un message — canal explicite ou déduit du destinataire."""
-        _assert_sendable(to, message, channel)
+        _assert_sendable(to, message, channel, with_media=has_media(media, attachments))
         body = _send_body(
-            to, message, channel=channel, subject=subject, status_callback=status_callback
+            to, message, channel=channel, subject=subject, status_callback=status_callback,
+            media=media, file_name=file_name, content_type=content_type,
+            media_type=media_type, attachments=attachments,
         )
         data = await self._client._request(
             "POST", "/messages", body=body, idempotency_key=idempotency_key
@@ -743,13 +824,23 @@ class _AsyncChannelResource:
     async def _send(
         self,
         to: str,
-        message: str,
+        message: Any,
         subject: Optional[str] = None,
         status_callback: Optional[str] = None,
         idempotency_key: Optional[str] = None,
+        *,
+        media: Optional[MediaContent] = None,
+        file_name: Optional[str] = None,
+        content_type: Optional[str] = None,
+        media_type: Optional[str] = None,
+        attachments: Optional[List[Mapping[str, Any]]] = None,
     ) -> MessageResource:
-        _assert_sendable(to, message, self._channel)
-        body = _send_body(to, message, subject=subject, status_callback=status_callback)
+        _assert_sendable(to, message, self._channel, with_media=has_media(media, attachments))
+        body = _send_body(
+            to, message, subject=subject, status_callback=status_callback,
+            media=media, file_name=file_name, content_type=content_type,
+            media_type=media_type, attachments=attachments,
+        )
         data = await self._client._request(
             "POST", self._path, body=body, idempotency_key=idempotency_key
         )
@@ -784,13 +875,21 @@ class AsyncWhatsappResource(_AsyncChannelResource):
     async def send(
         self,
         to: str,
-        message: str,
+        message: str = "",
         status_callback: Optional[str] = None,
         idempotency_key: Optional[str] = None,
+        *,
+        media: Optional[MediaContent] = None,
+        file_name: Optional[str] = None,
+        content_type: Optional[str] = None,
+        media_type: Optional[str] = None,
+        attachments: Optional[List[Mapping[str, Any]]] = None,
     ) -> MessageResource:
-        """Envoie un message WhatsApp à ``to`` (numéro E.164)."""
+        """Envoie un message WhatsApp à ``to`` (numéro E.164, média possible)."""
         return await self._send(
-            to, message, status_callback=status_callback, idempotency_key=idempotency_key
+            to, message, status_callback=status_callback, idempotency_key=idempotency_key,
+            media=media, file_name=file_name, content_type=content_type,
+            media_type=media_type, attachments=attachments,
         )
 
 
@@ -803,18 +902,29 @@ class AsyncEmailResource(_AsyncChannelResource):
     async def send(
         self,
         to: str,
-        message: str,
+        message: str = "",
         subject: Optional[str] = None,
         status_callback: Optional[str] = None,
         idempotency_key: Optional[str] = None,
+        *,
+        media: Optional[MediaContent] = None,
+        file_name: Optional[str] = None,
+        content_type: Optional[str] = None,
+        media_type: Optional[str] = None,
+        attachments: Optional[List[Mapping[str, Any]]] = None,
     ) -> MessageResource:
-        """Envoie un email à ``to`` (``subject`` ≤ 255 caractères)."""
+        """Envoie un email à ``to`` (``subject`` ≤ 255 caractères, pièces jointes possibles)."""
         return await self._send(
             to,
             message,
             subject=subject,
             status_callback=status_callback,
             idempotency_key=idempotency_key,
+            media=media,
+            file_name=file_name,
+            content_type=content_type,
+            media_type=media_type,
+            attachments=attachments,
         )
 
 

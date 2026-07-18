@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "fameen-messaging"
-version = "0.1.0"
+version = "0.2.0"
 description = "SDK Python officiel de l'API Fameen Messaging — SMS, WhatsApp et Email (envoi, suivi, webhooks)."
 readme = "README.md"
 requires-python = ">=3.9"

@@ -2,6 +2,10 @@
 
 import json
 
+import base64
+import os
+import tempfile
+
 import httpx
 import pytest
 
@@ -13,6 +17,8 @@ from fameen_messaging import (
     MessageResource,
     RateLimitInfo,
     WalletBalance,
+    encode_media,
+    file_attachment,
 )
 
 API_KEY = "fam_cle_de_test"
@@ -128,7 +134,7 @@ def test_en_tetes_auth_idempotence_et_user_agent():
 
     headers = seen["headers"]
     assert headers["Authorization"] == f"Bearer {API_KEY}"
-    assert headers["User-Agent"] == "fameen-messaging-python/0.1.0"
+    assert headers["User-Agent"] == "fameen-messaging-python/0.2.0"
     assert headers["Idempotency-Key"] == "idem-42"
     assert headers["Accept"] == "application/json"
     assert headers["Content-Type"] == "application/json"
@@ -476,6 +482,88 @@ def test_validation_api_key_et_sid():
     client = make_client(handler)
     with pytest.raises(TypeError):
         client.messages.get("  ")
+
+
+# ---------------------------------------------------------------------------
+# Médias (WhatsApp & email)
+# ---------------------------------------------------------------------------
+
+
+def test_whatsapp_media_raccourci_encode_en_base64():
+    seen = {}
+
+    def handler(request):
+        seen["body"] = json.loads(request.content.decode("utf-8"))
+        return httpx.Response(200, json=envelope(MESSAGE_DATA))
+
+    client = make_client(handler)
+    client.whatsapp.send(
+        "+224620000000", "Votre facture", media=b"%PDF-1.4 hello", file_name="facture.pdf"
+    )
+
+    assert seen["body"]["media"] == base64.b64encode(b"%PDF-1.4 hello").decode("ascii")
+    assert seen["body"]["fileName"] == "facture.pdf"
+
+
+def test_email_attachments_encodes_et_camel_case():
+    seen = {}
+
+    def handler(request):
+        seen["body"] = json.loads(request.content.decode("utf-8"))
+        return httpx.Response(200, json=envelope({**MESSAGE_DATA, "channel": "email"}))
+
+    client = make_client(handler)
+    client.email.send(
+        "a@b.com",
+        "Voir pièces jointes",
+        subject="Docs",
+        attachments=[
+            {"content": b"un", "filename": "a.pdf", "content_type": "application/pdf"},
+            {"content": "ZGV1eA==", "filename": "b.txt"},  # déjà base64 → passthrough
+        ],
+    )
+
+    assert seen["body"]["attachments"] == [
+        {"content": base64.b64encode(b"un").decode("ascii"), "filename": "a.pdf", "contentType": "application/pdf"},
+        {"content": "ZGV1eA==", "filename": "b.txt"},
+    ]
+
+
+def test_message_vide_autorise_avec_media():
+    def handler(request):
+        return httpx.Response(200, json=envelope(MESSAGE_DATA))
+
+    client = make_client(handler)
+    msg = client.whatsapp.send("+224620000000", media=b"img", media_type="image")
+    assert msg.sid == "msg_123"
+
+
+def test_media_refuse_sur_sms():
+    def handler(request):
+        raise AssertionError("aucun appel réseau ne doit avoir lieu")
+
+    client = make_client(handler)
+    with pytest.raises(TypeError):
+        client.sms.send("+224620000000", "x", media=b"img")
+
+
+def test_encode_media_passthrough_et_octets():
+    assert encode_media("ZGVqYQ==") == "ZGVqYQ=="
+    assert encode_media(b"hello") == base64.b64encode(b"hello").decode("ascii")
+    assert encode_media(bytearray(b"hi")) == base64.b64encode(b"hi").decode("ascii")
+
+
+def test_file_attachment_lit_le_fichier():
+    fd, path = tempfile.mkstemp(suffix=".txt")
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(b"contenu de test")
+        att = file_attachment(path)
+        assert att["filename"].endswith(".txt")
+        assert encode_media(att["content"]) == base64.b64encode(b"contenu de test").decode("ascii")
+        assert att["content_type"] == "text/plain"
+    finally:
+        os.remove(path)
 
 
 def test_base_url_slashs_finaux_retires():
