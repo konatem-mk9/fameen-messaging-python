@@ -134,7 +134,7 @@ def test_en_tetes_auth_idempotence_et_user_agent():
 
     headers = seen["headers"]
     assert headers["Authorization"] == f"Bearer {API_KEY}"
-    assert headers["User-Agent"] == "fameen-messaging-python/0.2.0"
+    assert headers["User-Agent"] == "fameen-messaging-python/1.0.0"
     assert headers["Idempotency-Key"] == "idem-42"
     assert headers["Accept"] == "application/json"
     assert headers["Content-Type"] == "application/json"

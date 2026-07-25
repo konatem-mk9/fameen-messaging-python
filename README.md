@@ -73,6 +73,50 @@ client.email.send(
 
 Chaque pièce jointe est un dict `{"content": bytes|base64, "filename": ..., "content_type": ..., "type": ...}` où `type` vaut `image | video | audio | document` (déduit du type MIME si absent). Max 16 Mo par fichier. Mêmes paramètres sur le client asynchrone.
 
+## Codes de vérification (OTP)
+
+Authentifiez un utilisateur par code à usage unique sur **SMS, WhatsApp ou email**.
+Le code est généré, stocké haché et vérifié **côté serveur** : il ne transite jamais
+par votre application et n'apparaît dans aucune réponse. Ni génération, ni stockage,
+ni expiration à gérer.
+
+```python
+# 1. Envoyer le code (canal déduit du destinataire si absent)
+v = client.otp.send("+224620000000", channel="sms")
+# v.verification_id, v.status == "pending", v.expires_at, v.attempts_remaining
+
+# 2. Contrôler le code saisi par l'utilisateur
+r = client.otp.verify("483920", verification_id=v.verification_id)
+if r.approved:
+    ...  # utilisateur authentifié
+else:
+    # r.reason : "invalid_code" | "expired" | "max_attempts"
+    print(f"Échec ({r.reason}), {r.attempts_remaining} tentative(s) restante(s)")
+```
+
+Un code erroné **ne lève pas d'exception** : la réponse porte `status="rejected"` et
+`reason`. Seules les erreurs de transport ou d'authentification lèvent.
+
+Si vous ne conservez pas l'identifiant, vérifiez par destinataire — la vérification
+en cours la plus récente est utilisée :
+
+```python
+client.otp.verify("483920", to="+224620000000")
+```
+
+Options d'envoi : `code_length` (4–8), `ttl_seconds` (60–3600), `max_attempts` (1–10),
+`template` (doit contenir `{{code}}` ; marqueurs `{{code}}`, `{{minutes}}`,
+`{{seconds}}`, `{{company}}`), `subject` (email), `status_callback` et
+`idempotency_key`. Sans ces paramètres, les réglages du compte s'appliquent.
+
+À savoir :
+
+- L'envoi exige **le scope du canal** utilisé et consomme un crédit de ce canal.
+- Un code validé est **à usage unique** ; le revérifier renvoie `rejected`.
+- Demander un nouveau code pour le même destinataire **annule le précédent**.
+- `client.otp.get(verification_id)` retourne l'état courant, jamais le code.
+- Disponible à l'identique sur le client asynchrone (`await client.otp.send(...)`).
+
 ## Client asynchrone
 
 Mêmes méthodes, en `async`, sur `httpx.AsyncClient` :
@@ -242,7 +286,7 @@ async def fameen_webhook(request: Request):
 ```python
 FameenMessaging(
     api_key="fam_…",          # requis
-    base_url="https://business.fameengroupe.com/api/v1",  # défaut ; « / » finaux retirés
+    base_url="https://fameenbusiness.com/api/v1",  # défaut ; « / » finaux retirés
     timeout=30.0,              # timeout httpx par tentative, en secondes
     max_retries=2,             # réessais automatiques
     retry_base=0.5,            # base du backoff exponentiel (s) — utile en test

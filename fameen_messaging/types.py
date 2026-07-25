@@ -234,3 +234,51 @@ class WebhookEvent:
             external_id=d.get("externalId"),
             timestamp=d.get("timestamp"),
         )
+
+
+@dataclass(frozen=True)
+class VerificationResource:
+    """Vérification par code à usage unique (``/v1/otp/*``).
+
+    Ne contient **jamais** le code : celui-ci est généré côté serveur et n'est
+    transmis qu'au destinataire, par le canal choisi.
+
+    ``status`` ∈ ``pending | approved | rejected | expired | failed | canceled``.
+    ``reason`` n'est renseigné que sur un ``rejected`` et vaut
+    ``invalid_code``, ``expired`` ou ``max_attempts``.
+    """
+
+    verification_id: Optional[str] = None
+    status: Optional[str] = None
+    channel: Optional[str] = None
+    to: Optional[str] = None
+    attempts: Number = 0
+    max_attempts: Number = 0
+    attempts_remaining: Number = 0
+    expires_at: Optional[str] = None
+    created_at: Optional[str] = None
+    message_sid: Optional[str] = None
+    reason: Optional[str] = None
+
+    @property
+    def approved(self) -> bool:
+        """``True`` si le code a été validé."""
+        return self.status == "approved"
+
+    @classmethod
+    def from_dict(cls, data: Any) -> "VerificationResource":
+        """Construit l'objet depuis un dict JSON (tolérant)."""
+        d = _mapping(data)
+        return cls(
+            verification_id=d.get("verificationId"),
+            status=d.get("status"),
+            channel=d.get("channel"),
+            to=d.get("to"),
+            attempts=_num(d.get("attempts")),
+            max_attempts=_num(d.get("maxAttempts")),
+            attempts_remaining=_num(d.get("attemptsRemaining")),
+            expires_at=d.get("expiresAt"),
+            created_at=d.get("createdAt"),
+            message_sid=d.get("messageSid"),
+            reason=d.get("reason"),
+        )

@@ -29,10 +29,16 @@ import httpx
 
 from .errors import FameenAPIError, FameenConnectionError
 from .media import MediaContent, build_media_fields, has_media
-from .types import MessageList, MessageResource, RateLimitInfo, WalletBalance
+from .types import (
+    MessageList,
+    MessageResource,
+    RateLimitInfo,
+    VerificationResource,
+    WalletBalance,
+)
 
-VERSION = "0.2.0"
-DEFAULT_BASE_URL = "https://business.fameengroupe.com/api/v1"
+VERSION = "1.0.0"
+DEFAULT_BASE_URL = "https://fameenbusiness.com/api/v1"
 USER_AGENT = f"fameen-messaging-python/{VERSION}"
 
 Number = Union[int, float]
@@ -332,7 +338,7 @@ class FameenMessaging(_BaseClient):
 
     Args:
         api_key: clé API du compte (``fam_…``) — requise, jamais côté navigateur.
-        base_url: défaut ``https://business.fameengroupe.com/api/v1``
+        base_url: défaut ``https://fameenbusiness.com/api/v1``
             (les ``/`` finaux sont retirés).
         timeout: timeout httpx par tentative, en secondes (défaut : 30.0).
         max_retries: nombre de réessais automatiques (défaut : 2).
@@ -371,6 +377,8 @@ class FameenMessaging(_BaseClient):
         self.email = EmailResource(self)
         #: Soldes et facturation (``GET /wallet/balance``).
         self.wallet = WalletResource(self)
+        #: Codes de verification a usage unique (/otp/*).
+        self.otp = OtpResource(self)
 
     def close(self) -> None:
         """Ferme le client HTTP sous-jacent."""
@@ -687,6 +695,8 @@ class AsyncFameenMessaging(_BaseClient):
         self.email = AsyncEmailResource(self)
         #: Soldes et facturation (``GET /wallet/balance``).
         self.wallet = AsyncWalletResource(self)
+        #: Codes de verification a usage unique (/otp/*).
+        self.otp = AsyncOtpResource(self)
 
     async def aclose(self) -> None:
         """Ferme le client HTTP sous-jacent."""
@@ -938,3 +948,202 @@ class AsyncWalletResource:
         """Soldes SMS / WhatsApp / Email et mode de facturation."""
         data = await self._client._request("GET", "/wallet/balance")
         return WalletBalance.from_dict(data)
+
+
+# ---------------------------------------------------------------------------
+# Codes de vérification (OTP) — corps de requête partagés sync/async
+# ---------------------------------------------------------------------------
+
+
+def _otp_send_body(
+    to: str,
+    *,
+    channel: Optional[str],
+    code_length: Optional[int],
+    ttl_seconds: Optional[int],
+    max_attempts: Optional[int],
+    template: Optional[str],
+    subject: Optional[str],
+    status_callback: Optional[str],
+) -> Dict[str, Any]:
+    """Valide côté client puis assemble le corps de ``POST /otp/send``."""
+    destination = (to or "").strip()
+    if not destination:
+        raise ValueError("`to` est requis.")
+    if channel and channel != "email" and "@" in destination:
+        raise ValueError(
+            f"`to` ressemble à un email mais le canal demandé est \"{channel}\"."
+        )
+    if template is not None and "{{code}}" not in template:
+        raise ValueError("`template` doit contenir le marqueur {{code}}.")
+
+    body: Dict[str, Any] = {"to": destination}
+    if channel is not None:
+        body["channel"] = channel
+    if code_length is not None:
+        body["codeLength"] = code_length
+    if ttl_seconds is not None:
+        body["ttlSeconds"] = ttl_seconds
+    if max_attempts is not None:
+        body["maxAttempts"] = max_attempts
+    if template is not None:
+        body["template"] = template
+    if subject is not None:
+        body["subject"] = subject
+    if status_callback is not None:
+        body["statusCallback"] = status_callback
+    return body
+
+
+def _otp_verify_body(
+    code: str,
+    *,
+    verification_id: Optional[str],
+    to: Optional[str],
+    channel: Optional[str],
+) -> Dict[str, Any]:
+    """Valide côté client puis assemble le corps de ``POST /otp/verify``."""
+    value = (code or "").strip()
+    if not value:
+        raise ValueError("`code` est requis.")
+    ver = (verification_id or "").strip()
+    dest = (to or "").strip()
+    if not ver and not dest:
+        raise ValueError("Fournissez `verification_id` ou `to`.")
+
+    body: Dict[str, Any] = {"code": value}
+    if ver:
+        body["verificationId"] = ver
+    if dest:
+        body["to"] = dest
+    if channel is not None:
+        body["channel"] = channel
+    return body
+
+
+def _otp_path(verification_id: str) -> str:
+    value = (verification_id or "").strip()
+    if not value:
+        raise ValueError("`verification_id` est requis.")
+    return f"/otp/{quote(value, safe='')}"
+
+
+class OtpResource:
+    """Codes à usage unique par SMS, WhatsApp ou email.
+
+    Le code est généré, stocké haché et vérifié **côté serveur** : il ne transite
+    jamais par votre application et n'apparaît dans aucune réponse.
+
+    ::
+
+        v = client.otp.send("+224620000000", channel="sms")
+        r = client.otp.verify("483920", verification_id=v.verification_id)
+        if r.approved:
+            ...
+    """
+
+    def __init__(self, client: FameenMessaging) -> None:
+        self._client = client
+
+    def send(
+        self,
+        to: str,
+        *,
+        channel: Optional[str] = None,
+        code_length: Optional[int] = None,
+        ttl_seconds: Optional[int] = None,
+        max_attempts: Optional[int] = None,
+        template: Optional[str] = None,
+        subject: Optional[str] = None,
+        status_callback: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+    ) -> VerificationResource:
+        """Génère un code et l'envoie sur le canal choisi.
+
+        Nécessite le scope du canal utilisé et consomme un crédit de ce canal,
+        exactement comme un message ordinaire.
+        """
+        body = _otp_send_body(
+            to, channel=channel, code_length=code_length, ttl_seconds=ttl_seconds,
+            max_attempts=max_attempts, template=template, subject=subject,
+            status_callback=status_callback,
+        )
+        data = self._client._request(
+            "POST", "/otp/send", body=body, idempotency_key=idempotency_key
+        )
+        return VerificationResource.from_dict(data)
+
+    def verify(
+        self,
+        code: str,
+        *,
+        verification_id: Optional[str] = None,
+        to: Optional[str] = None,
+        channel: Optional[str] = None,
+    ) -> VerificationResource:
+        """Contrôle le code saisi par l'utilisateur.
+
+        Ne lève **pas** d'erreur sur un code erroné : la réponse porte
+        ``status='rejected'`` et ``reason``. Testez ``result.approved``.
+        """
+        body = _otp_verify_body(
+            code, verification_id=verification_id, to=to, channel=channel
+        )
+        data = self._client._request("POST", "/otp/verify", body=body)
+        return VerificationResource.from_dict(data)
+
+    def get(self, verification_id: str) -> VerificationResource:
+        """État courant d'une vérification (jamais le code)."""
+        data = self._client._request("GET", _otp_path(verification_id))
+        return VerificationResource.from_dict(data)
+
+
+class AsyncOtpResource:
+    """Codes à usage unique (version asynchrone). Voir :class:`OtpResource`."""
+
+    def __init__(self, client: AsyncFameenMessaging) -> None:
+        self._client = client
+
+    async def send(
+        self,
+        to: str,
+        *,
+        channel: Optional[str] = None,
+        code_length: Optional[int] = None,
+        ttl_seconds: Optional[int] = None,
+        max_attempts: Optional[int] = None,
+        template: Optional[str] = None,
+        subject: Optional[str] = None,
+        status_callback: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+    ) -> VerificationResource:
+        """Génère un code et l'envoie sur le canal choisi."""
+        body = _otp_send_body(
+            to, channel=channel, code_length=code_length, ttl_seconds=ttl_seconds,
+            max_attempts=max_attempts, template=template, subject=subject,
+            status_callback=status_callback,
+        )
+        data = await self._client._request(
+            "POST", "/otp/send", body=body, idempotency_key=idempotency_key
+        )
+        return VerificationResource.from_dict(data)
+
+    async def verify(
+        self,
+        code: str,
+        *,
+        verification_id: Optional[str] = None,
+        to: Optional[str] = None,
+        channel: Optional[str] = None,
+    ) -> VerificationResource:
+        """Contrôle le code saisi par l'utilisateur."""
+        body = _otp_verify_body(
+            code, verification_id=verification_id, to=to, channel=channel
+        )
+        data = await self._client._request("POST", "/otp/verify", body=body)
+        return VerificationResource.from_dict(data)
+
+    async def get(self, verification_id: str) -> VerificationResource:
+        """État courant d'une vérification (jamais le code)."""
+        data = await self._client._request("GET", _otp_path(verification_id))
+        return VerificationResource.from_dict(data)

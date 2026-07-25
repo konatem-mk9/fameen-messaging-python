@@ -32,6 +32,7 @@ from .types import (
     MessageList,
     MessageResource,
     RateLimitInfo,
+    VerificationResource,
     WalletBalance,
     WalletBilling,
     WebhookEvent,
@@ -53,6 +54,7 @@ __all__ = [
     # Modèles
     "MessageResource",
     "MessageList",
+    "VerificationResource",
     "WalletBalance",
     "WalletBilling",
     "WebhookEvent",
