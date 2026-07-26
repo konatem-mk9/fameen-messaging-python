@@ -2,7 +2,7 @@
 
 SDK Python officiel de l'API **Fameen Messaging** : envoyez des **SMS**, des messages **WhatsApp** et des **emails** depuis vos applications Python, authentifiez vos utilisateurs par **code de vérification (OTP)**, suivez leur statut et recevez des webhooks signés.
 
-- Paquet PyPI : `fameen-messaging` (module `fameen_messaging`) — version 1.0.1
+- Paquet PyPI : `fameen-messaging` (module `fameen_messaging`) — version 1.0.2
 - Python ≥ 3.9 — dépendance unique : [`httpx`](https://www.python-httpx.org/)
 - Client synchrone (`FameenMessaging`) **et** asynchrone (`AsyncFameenMessaging`)
 - Réessais automatiques (réseau, 429, 5xx idempotents), erreurs typées, vérification de webhooks en temps constant
@@ -134,6 +134,19 @@ async def main():
 
 asyncio.run(main())
 ```
+
+## Authenticité du paquet
+
+Depuis la 1.0.2, `fameen-messaging` est publié par **Trusted Publishing** : la CI de
+GitHub Actions s'authentifie auprès de PyPI par échange de jeton OIDC, sans qu'aucun
+secret n'existe côté dépôt. PyPI génère alors des **attestations de provenance**
+(`in-toto`, signées via Sigstore et inscrites au journal de transparence Rekor), qui
+lient chaque archive au commit et au workflow qui l'ont produite.
+
+Elles sont consultables depuis la page de la version sur pypi.org, section
+*Provenance* : nom du dépôt, du workflow et empreinte de la distribution.
+
+Les versions ≤ 1.0.2 ont été publiées au jeton et n'ont pas d'attestation.
 
 ## Idempotence
 
