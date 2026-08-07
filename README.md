@@ -182,7 +182,7 @@ except FameenConnectionError:
 | `FameenConnectionError` | API injoignable après épuisement des réessais | — |
 | `WebhookVerificationError` | signature/corps de webhook invalide | — |
 
-Codes stables (`err.code`) : `bad_request` (400), `unauthorized` (401), `insufficient_credits` (402), `channel_not_allowed` (403), `not_found` (404), `rate_limited` (429), `internal_error` (5xx), `unknown_error`. Si le corps d'erreur est illisible, le code est déduit du statut HTTP.
+Codes stables (`err.code`) : `invalid_request` (400), `subscription_expired` (400, facturation à la consommation échue), `unauthorized` (401), `insufficient_credits` (402), `channel_not_allowed` (403), `not_found` (404), `rate_limited` (429), `internal_error` (5xx). Si le corps d'erreur est illisible, le code est déduit du statut HTTP et vaut `unknown_error` par défaut — cette valeur n'est jamais émise par l'API.
 
 Une validation locale est faite **avant** tout appel réseau (lève `TypeError`) : `to` et `message` non vides ; `to` contenant « @ » refusé si le canal explicite n'est pas `email`.
 
@@ -201,7 +201,7 @@ Une validation locale est faite **avant** tout appel réseau (lève `TypeError`)
 
 ## Limite de débit
 
-60 requêtes/minute/clé. Chaque réponse expose `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset` (epoch secondes) ; le SDK les mémorise :
+60 requêtes/minute **par compte** — toutes les clés d'un compte partagent ce quota. Chaque réponse expose `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset` (epoch secondes) ; le SDK les mémorise :
 
 ```python
 info = client.last_rate_limit  # RateLimitInfo(limit=60, remaining=42, reset=1770000000) ou None

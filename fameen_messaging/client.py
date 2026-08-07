@@ -44,7 +44,9 @@ USER_AGENT = f"fameen-messaging-python/{VERSION}"
 Number = Union[int, float]
 
 _CODE_BY_STATUS = {
-    400: "bad_request",
+    # 400 couvre aussi ``subscription_expired`` ; sans corps lisible on ne peut
+    # pas les distinguer, donc on retient le cas général.
+    400: "invalid_request",
     401: "unauthorized",
     402: "insufficient_credits",
     403: "channel_not_allowed",

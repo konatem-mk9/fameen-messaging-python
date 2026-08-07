@@ -7,9 +7,14 @@ Hiérarchie :
 - :class:`FameenConnectionError` — échec réseau (API injoignable) ;
 - :class:`WebhookVerificationError` — signature ou corps de webhook invalide.
 
-Codes stables ``error.code`` renvoyés par l'API : ``bad_request``,
-``unauthorized``, ``insufficient_credits``, ``channel_not_allowed``,
-``not_found``, ``rate_limited``, ``internal_error``, ``unknown_error``.
+Codes stables ``error.code`` renvoyés par l'API : ``invalid_request``,
+``unauthorized``, ``insufficient_credits``, ``subscription_expired``,
+``channel_not_allowed``, ``not_found``, ``rate_limited``, ``internal_error``.
+
+``bad_request`` figurait ici par erreur : l'API renvoie ``invalid_request``
+pour un 400, une condition sur ``bad_request`` n'était donc jamais vraie.
+``unknown_error`` n'est jamais émis par l'API — c'est la valeur de repli du SDK
+quand la réponse ne porte pas de code exploitable.
 """
 
 from __future__ import annotations
