@@ -60,7 +60,7 @@ async def test_async_email_send_deballe_et_en_tetes():
     assert seen["path"] == "/api/v1/email/send"
     assert seen["body"] == {"to": "client@exemple.com", "message": "Bonjour", "subject": "Objet"}
     assert seen["headers"]["Authorization"] == f"Bearer {API_KEY}"
-    assert seen["headers"]["User-Agent"] == "fameen-messaging-python/1.0.2"
+    assert seen["headers"]["User-Agent"] == "fameen-messaging-python/1.0.3"
     assert seen["headers"]["Idempotency-Key"] == "idem-7"
 
 

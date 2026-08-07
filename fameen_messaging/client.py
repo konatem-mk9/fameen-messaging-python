@@ -37,7 +37,7 @@ from .types import (
     WalletBalance,
 )
 
-VERSION = "1.0.2"
+VERSION = "1.0.3"
 DEFAULT_BASE_URL = "https://fameenbusiness.com/api/v1"
 USER_AGENT = f"fameen-messaging-python/{VERSION}"
 

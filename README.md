@@ -2,7 +2,7 @@
 
 SDK Python officiel de l'API **Fameen Messaging** : envoyez des **SMS**, des messages **WhatsApp** et des **emails** depuis vos applications Python, authentifiez vos utilisateurs par **code de vérification (OTP)**, suivez leur statut et recevez des webhooks signés.
 
-- Paquet PyPI : `fameen-messaging` (module `fameen_messaging`) — version 1.0.2
+- Paquet PyPI : `fameen-messaging` (module `fameen_messaging`) — version 1.0.3
 - Python ≥ 3.9 — dépendance unique : [`httpx`](https://www.python-httpx.org/)
 - Client synchrone (`FameenMessaging`) **et** asynchrone (`AsyncFameenMessaging`)
 - Réessais automatiques (réseau, 429, 5xx idempotents), erreurs typées, vérification de webhooks en temps constant
